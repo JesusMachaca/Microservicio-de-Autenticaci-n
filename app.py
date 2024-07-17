@@ -14,9 +14,6 @@ conn_str = {
     "user": "grupo_app",
     "password": "4fPiWKsmtrNfCeHEEo2jBVIP7jvLGAn3"
 }
-@app.route('/')
-def home():
-    return redirect(url_for('login_render'))
 
 # Conexión a la base de datos PostgreSQL
 try:
@@ -24,6 +21,10 @@ try:
     print("Conexión exitosa a la base de datos PostgreSQL")
 except Exception as e:
     print(f"No se pudo conectar a la base de datos PostgreSQL: {e}")
+
+@app.route('/')
+def home():
+    return redirect(url_for('login_render'))
 
 @app.route('/registro-usuario')
 def registro_usuario():
@@ -97,30 +98,44 @@ def logout():
     session.pop('usuario_id', None)
     session.pop('nombre', None)
     flash("Sesión cerrada correctamente.")
-    return redirect(url_for('Index'))
+    return redirect(url_for('home'))
 
 @app.route('/dashboard')
 def dashboard():
     if 'logged_in' in session:
         idAlumno = session['usuario_id']
 
-        # Llamada al microservicio de publicaciones
-        try:
-            publicaciones_response = requests.get(f'http://posts_service:5001/publicaciones/{idAlumno}')
-            sesiones_response = requests.get(f'http://posts_service:5001/sesiones/{idAlumno}')
-
-            publicaciones = publicaciones_response.json()
-            sesiones = sesiones_response.json()
-        except Exception as e:
-            flash(f"Error al obtener datos de publicaciones: {e}")
-            publicaciones = []
-            sesiones = []
-
+        # Obtener datos de perfil del usuario
         cursor = mydb.cursor()
         query = "SELECT nombre, apellido, correo FROM alumnos WHERE idAlumno = %s"
         cursor.execute(query, (idAlumno,))
         usuario = cursor.fetchone()
         cursor.close()
+
+        if not usuario:
+            flash("Error al obtener datos del perfil.")
+            return redirect(url_for('login_render'))
+
+        # Llamada al microservicio de publicaciones (opcional)
+        publicaciones = []
+        sesiones = []
+
+        try:
+            publicaciones_response = requests.get(f'https://<URL_DEL_MICROSERVICIO_DE_PUBLICACIONES>/publicaciones/{idAlumno}')
+            sesiones_response = requests.get(f'https://<URL_DEL_MICROSERVICIO_DE_PUBLICACIONES>/sesiones/{idAlumno}')
+
+            if publicaciones_response.status_code == 200:
+                publicaciones = publicaciones_response.json()
+            else:
+                flash(f"Error al obtener publicaciones: {publicaciones_response.status_code}")
+
+            if sesiones_response.status_code == 200:
+                sesiones = sesiones_response.json()
+            else:
+                flash(f"Error al obtener sesiones: {sesiones_response.status_code}")
+
+        except Exception as e:
+            flash(f"Error al conectar con el microservicio de publicaciones: {e}")
 
         return render_template('dashboard.html', publicaciones=publicaciones, sesiones=sesiones, usuario=usuario)
     else:
