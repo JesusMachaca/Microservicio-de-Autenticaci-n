@@ -121,8 +121,8 @@ def dashboard():
         sesiones = []
 
         try:
-            publicaciones_response = requests.get(f'https://<URL_DEL_MICROSERVICIO_DE_PUBLICACIONES>/publicaciones/{idAlumno}')
-            sesiones_response = requests.get(f'https://<URL_DEL_MICROSERVICIO_DE_PUBLICACIONES>/sesiones/{idAlumno}')
+            publicaciones_response = requests.get(f'https://microservicio-de-publicaciones-sauq.onrender.com/publicaciones/{idAlumno}')
+            sesiones_response = requests.get(f'https://microservicio-de-publicaciones-sauq.onrender.com/sesiones/{idAlumno}')
 
             if publicaciones_response.status_code == 200:
                 publicaciones = publicaciones_response.json()
