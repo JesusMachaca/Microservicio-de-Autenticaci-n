@@ -1,14 +1,13 @@
+import os
 from flask import Flask, request, render_template, redirect, url_for, flash, session
 import datetime
 import psycopg2
-from psycopg2 import sql
+import requests
 
 app = Flask(__name__)
-
-# SETTINGS
 app.secret_key = "mysecretkey"
 
-# Configuración de la conexión para PostgreSQL
+# Configuración de conexión para PostgreSQL
 conn_str = {
     "host": "dpg-cqarlkuehbks73de8dlg-a.oregon-postgres.render.com",
     "database": "bdfisitweet",
@@ -16,47 +15,12 @@ conn_str = {
     "password": "4fPiWKsmtrNfCeHEEo2jBVIP7jvLGAn3"
 }
 
-# Conectar a la base de datos PostgreSQL
+# Conexión a la base de datos PostgreSQL
 try:
     mydb = psycopg2.connect(**conn_str)
     print("Conexión exitosa a la base de datos PostgreSQL")
 except Exception as e:
     print(f"No se pudo conectar a la base de datos PostgreSQL: {e}")
-
-global alumno
-alumno = None
-
-@app.route('/')
-def Index():
-    publicaciones = consultarTodasPublicaciones()
-    return render_template('index.html', publicaciones=publicaciones)
-
-@app.route('/registro-publicacion')
-def page_registro_publicacion():
-    return render_template('registro-publicacion.html')
-
-@app.route('/agregar-publicacion', methods=['POST'])
-def agregar_publicacion():
-    global alumno
-    if request.method == 'POST':
-        try:
-            fecha = str(datetime.datetime.now())
-            idAlumno = alumno[0]
-            contenido = request.form['contenido']
-
-            cursor = mydb.cursor()
-            query = "INSERT INTO publicaciones (idAlumno, contenido, fecha) VALUES (%s, %s, %s)"
-            values = (idAlumno, contenido, fecha)
-            cursor.execute(query, values)
-            mydb.commit()
-            cursor.close()
-
-            flash("Se ha registrado de manera correcta!")
-        except Exception as e:
-            flash(f"Error al realizar el registro: {e}")
-            return render_template('registro-publicacion.html')
-
-    return render_template('registro-publicacion.html')
 
 @app.route('/registro-usuario')
 def registro_usuario():
@@ -81,7 +45,6 @@ def agregar_usuario():
             flash('Usuario agregado de manera correcta: {}'.format(nombre))
         except Exception as e:
             flash("Error al realizar el registro: {}".format(e))
-            return render_template('registro-usuario.html')
 
     return render_template('registro-usuario.html')
 
@@ -91,7 +54,6 @@ def login_render():
 
 @app.route('/login', methods=['POST', 'GET'])
 def login():
-    global alumno
     if request.method == 'POST':
         correo = request.form['correo']
         codigo = request.form['codigo']
@@ -104,7 +66,7 @@ def login():
 
         if alumno:
             fecha = str(datetime.datetime.now())
-            
+
             try:
                 cursor = mydb.cursor()
                 idAlumno = alumno[0]
@@ -112,10 +74,12 @@ def login():
                 query = "INSERT INTO logs (idAlumno, fecha) VALUES (%s, %s)"
                 values = (idAlumno, fecha)
                 cursor.execute(query, values)
-                mydb.commit()
                 cursor.close()
 
                 session['logged_in'] = True
+                session['usuario_id'] = alumno[0]
+                session['nombre'] = alumno[1]
+                flash("Inicio de sesión exitoso!")
                 return redirect(url_for('dashboard'))
             except Exception as e:
                 flash(f"Error al registrar Log: {e}")
@@ -124,83 +88,42 @@ def login():
 
     return render_template('loginFace.html')
 
-
 @app.route('/logout', methods=['POST', 'GET'])
 def logout():
-    global alumno
-    alumno = None
     session.pop('logged_in', None)
+    session.pop('usuario_id', None)
+    session.pop('nombre', None)
+    flash("Sesión cerrada correctamente.")
     return redirect(url_for('Index'))
 
 @app.route('/dashboard')
 def dashboard():
-    global alumno
-    publicaciones = None
-    sesiones = None
-    if alumno is not None:
-        idAlumno = alumno[0]
-        publicaciones = consultarPublicaciones(idAlumno=idAlumno)
-        sesiones = consultarSesiones(idAlumno=idAlumno)
-    return render_template('dashboard.html', alumno=alumno, publicaciones=publicaciones, sesiones=sesiones)
+    if 'logged_in' in session:
+        idAlumno = session['usuario_id']
 
-def consultarTodasPublicaciones():
-    try:
+        # Llamada al microservicio de publicaciones
+        try:
+            publicaciones_response = requests.get(f'http://posts_service:5001/publicaciones/{idAlumno}')
+            sesiones_response = requests.get(f'http://posts_service:5001/sesiones/{idAlumno}')
+
+            publicaciones = publicaciones_response.json()
+            sesiones = sesiones_response.json()
+        except Exception as e:
+            flash(f"Error al obtener datos de publicaciones: {e}")
+            publicaciones = []
+            sesiones = []
+
         cursor = mydb.cursor()
-        query = '''
-            SELECT alumnos.nombre, alumnos.correo, publicaciones.contenido, publicaciones.fecha
-            FROM alumnos
-            JOIN publicaciones ON alumnos.idAlumno = publicaciones.idAlumno
-        '''
-        cursor.execute(query)
-        resultados = cursor.fetchall()
+        query = "SELECT nombre, apellido, correo FROM alumnos WHERE idAlumno = %s"
+        cursor.execute(query, (idAlumno,))
+        usuario = cursor.fetchone()
         cursor.close()
-        return resultados
-    except Exception as e:
-        flash(f"Error al consultar publicaciones: {e}")
-        return None
 
-def consultarPublicaciones(idAlumno):
-    try:
-        cursor = mydb.cursor()
-        query = '''
-            SELECT contenido, fecha
-            FROM publicaciones WHERE idAlumno = %s
-        '''
-        values = (idAlumno,)
-        cursor.execute(query, values)
-        resultados = cursor.fetchall()
-        cursor.close()
-        return resultados
-    except Exception as e:
-        flash(f"Error al consultar publicaciones: {e}")
-        return None
+        return render_template('dashboard.html', publicaciones=publicaciones, sesiones=sesiones, usuario=usuario)
+    else:
+        flash("Debe iniciar sesión para acceder al dashboard.")
+        return redirect(url_for('login_render'))
 
-def consultarSesiones(idAlumno):
-    try:
-        cursor = mydb.cursor()
-        query = '''
-            SELECT idLog, fecha
-            FROM logs WHERE idAlumno = %s
-        '''
-        values = (idAlumno,)
-        cursor.execute(query, values)
-        resultados = cursor.fetchall()
-        cursor.close()
-        return resultados
-    except Exception as e:
-        flash(f"Error al consultar sesiones: {e}")
-        return None
-
-def getAlumnos():
-    try:
-        cursor = mydb.cursor()
-        cursor.execute("SELECT idAlumno, nombre, apellido, correo, codigo, imagen, imagenEncoding FROM alumnos")
-        alumnos = cursor.fetchall()
-        cursor.close()
-        return alumnos
-    except Exception as e:
-        flash(f"Error al consultar alumnos: {e}")
-        return None
-
-if __name__ == '__main__':
-    app.run(port=3000, debug=True)
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
