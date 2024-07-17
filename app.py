@@ -14,6 +14,9 @@ conn_str = {
     "user": "grupo_app",
     "password": "4fPiWKsmtrNfCeHEEo2jBVIP7jvLGAn3"
 }
+@app.route('/')
+def home():
+    return redirect(url_for('login_render'))
 
 # Conexión a la base de datos PostgreSQL
 try:
